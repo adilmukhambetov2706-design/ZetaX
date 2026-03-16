@@ -1,32 +1,38 @@
 from customtkinter import *
 from PIL import Image
-from random import randint
+import requests
+from datetime import datetime, timedelta
 
+API_KEY = "d57a3845315ffcc38df8af6af61ffb9c"
 mb = 'Montserrat SemiBold'
 m = 'Montserrat'
 tr = 'transparent'
+url = f"https://api.openweathermap.org/data/2.5/forecast?q=Bishkek&units=metric&appid={API_KEY}"
+weather_data = requests.get(url).json()
+
+
 
 class Upper_frame(CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, n):
         super().__init__(master, width=1293, height=40, fg_color=tr)
         color = "#D9D9D9"
 
         CTkLabel(self, text='Zeta-X', font=(mb, 32)).grid(column=0, row=0, padx=52)
 
         search_frame = CTkFrame(self, width=600, height=34, corner_radius=17, fg_color=color)
-        search_frame.grid(column=1, row=0, padx=110)
+        search_frame.grid(column=1, row=0, padx=(110, 0))
 
         CTkLabel(search_frame, image=CTkImage(Image.open("Icons/Search.png"),
                                               size=(24, 24)), text="").grid(column=0, row=0, padx=(20, 0))
 
-        search_entry = CTkEntry(search_frame, placeholder_text="Search", corner_radius=17, border_color=color,
-                                fg_color=color, placeholder_text_color='#422BA0', width=671, height=34)
-        search_entry.grid(column=1, row=0, padx=(0, 100))
+        self.search_entry = CTkEntry(search_frame, placeholder_text="Search", corner_radius=17, border_color=color,
+                                fg_color=color, text_color="#000000", placeholder_text_color='#422BA0', width=671, height=34)
+        self.search_entry.grid(column=1, row=0, padx=(0, 100))
 
         burger_image = CTkImage(light_image=Image.open('Icons/menu.png'), size=(58, 42))
         burger_button = CTkButton(self, image=burger_image, height=42, width=58, fg_color=tr,
                                   text="")
-        burger_button.grid(column=2, row=0, padx=20)
+        burger_button.grid(column=n, row=0, padx=60)
 
 
 
@@ -54,15 +60,20 @@ class Middle_frame(CTkFrame):
         hourly_time_frame = CTkFrame(detailed_24h_frame, fg_color=tr)
         hourly_time_frame.pack(anchor="n", pady=(60, 0), padx=(39, 0))
 
-        weather = ["Cloudy", "Lighting", "Wind", "Sun-clouds", "Rainning", "Sun-clouds", "Sun-ontheclouds", "Cloudy"]
+        timezone_offset = weather_data['city']['timezone']
+        utc_now = datetime.utcnow()
+        local_time = utc_now + timedelta(seconds=timezone_offset)
+        for i in range(8):
+            hour_time = local_time + timedelta(hours=i)
+            CTkLabel(hourly_time_frame, text=f"{hour_time.hour:02d}:00", font=(mb, 32)).grid(column=i, row=0, padx=(0, 84))
 
-        for i in range(6, 14):
-            CTkLabel(hourly_time_frame, text=f"{i}:00", font=(mb, 32)).grid(column=i-6, row=0, padx=(0, 84))
-        for i in range(8):
-            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather[i]}.png"), size=(80, 80))
+            weather = weather_data['list'][i//3]['weather'][0]['main']
+            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(80, 80))
             CTkLabel(hourly_time_frame, image=weather_image, text="").grid(column=i, row=1, padx=(0, 84), pady=(12, 0))
-        for i in range(8):
-            CTkLabel(hourly_time_frame, text="15°C", font=(m, 24)).grid(column=i, row=2, padx=(0, 84), pady=(12, 0))
+
+
+            city_temp = weather_data['list'][i//3]['main']['temp']
+            CTkLabel(hourly_time_frame, text=f"{int(city_temp)}°C", font=(m, 24)).grid(column=i, row=2, padx=(0, 84), pady=(12, 0))
 
 
 class Lower_Frame(CTkFrame):
@@ -82,30 +93,49 @@ class Lower_Frame(CTkFrame):
         CTkLabel(self, text='UV Index', text_color=color, font=font_semibold).grid(column=5, row=0, padx=(78, 0), pady=pady)
         CTkLabel(self, text='Humidity', text_color=color, font=font_semibold).grid(column=6, row=0, padx=(81, 23), pady=pady)
 
-        weekend = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-        weather = ["Cloudy", "Lighting", "Wind", "Sun-clouds", "Rainning", "Sun-clouds", "Sun-ontheclouds", "Cloudy"]
-        name_weather = ["Cloudy", "Thunderstorm", "Sunny", "Rain", "Cloudy", "Cloudy"]
+        months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
         pady=(1, 0)
         color = "#FFFFFF"
 
-        for i in range(6):
-            CTkLabel(self, text=weekend[i], text_color=color, font=font).grid(column=0, row=i + 1, pady=pady)
-            CTkLabel(self, text=f"Mar {i}", text_color=color, font=font).grid(column=1, row=i + 1, pady=pady)
+        for i in range(5):
+            today = datetime.now()
+            day = today + timedelta(days=i)
+            CTkLabel(self, text=day.strftime("%a"), text_color=color, font=font).grid(column=0, row=i + 1, pady=pady)
+
+            timezone_offset = weather_data['city']['timezone']
+            utc_now = datetime.utcnow()
+            local_time = utc_now + timedelta(seconds=timezone_offset)
+            date = local_time + timedelta(days=i)
+            CTkLabel(self, text=f"{months[date.month-1]} {date.day}",
+                     text_color=color, font=font).grid(column=1, row=i + 1, pady=pady)
 
             weather_frame = CTkFrame(self, fg_color=tr)
             weather_frame.grid(column=2, row=i + 1, pady=pady)
-            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather[i]}.png"), size=(56, 56))
-            CTkLabel(weather_frame, image=weather_image, text="").grid(column=0, row=0)
-            CTkLabel(weather_frame, text=name_weather[i], text_color=color, font=font).grid(column=1, row=0)
 
+            weather = weather_data['list'][i*8]['weather'][0]['main']
+            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(56, 56))
+            CTkLabel(weather_frame, image=weather_image, text="").grid(column=0, row=0)
+            CTkLabel(weather_frame, text=weather, text_color=color, font=font).grid(column=1, row=0)
+
+            temps = []
+            for j in range(8):
+                index = i * 8 + j
+                if index < len(weather_data["list"]):
+                    temps.append(weather_data["list"][index]["main"]["temp"])
+
+            min_temp = int(min(temps))
+            max_temp = int(max(temps))
             if i == 0:
-                CTkLabel(self, text="14°/20°", text_color=color, font=font).grid(column=4, row=i+1, pady=pady)
+                CTkLabel(self, text=f"{min_temp}°/{max_temp}°", text_color=color, font=font).grid(column=4, row=i+1, pady=pady)
             else:
                 min_max_frame = CTkFrame(self, fg_color=tr)
                 min_max_frame.grid(column=4, row=i + 1, pady=pady)
-                CTkLabel(min_max_frame, text="14°", text_color="#0699D7", font=font).grid(column=0, row=0)
+                CTkLabel(min_max_frame, text=f"{min_temp}°", text_color="#0699D7", font=font).grid(column=0, row=0)
                 CTkLabel(min_max_frame, text="/", text_color=color, font=font).grid(column=1, row=0)
-                CTkLabel(min_max_frame, text="20°", text_color="#FF5A5A", font=font).grid(column=2, row=0)
+                CTkLabel(min_max_frame, text=f"{max_temp}°", text_color="#FF5A5A", font=font).grid(column=2, row=0)
 
-            CTkLabel(self, text=str(randint(1, 15)), text_color=color, font=font).grid(column=5, row=i+1, pady=pady)
-            CTkLabel(self, text=f"{str(randint(1, 15))}%", text_color=color, font=font).grid(column=6, row=i+1, pady=pady)
+
+            CTkLabel(self, text="N/A", text_color=color, font=font).grid(column=5, row=i+1, pady=pady)
+
+            humidity = weather_data["list"][i*5]["main"]["humidity"]
+            CTkLabel(self, text=f"{humidity}%", text_color=color, font=font).grid(column=6, row=i+1, pady=pady)

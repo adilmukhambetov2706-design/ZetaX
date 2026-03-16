@@ -1,5 +1,4 @@
 from customtkinter import *
-from PIL import Image
 from Frames import Upper_frame, Middle_frame, Lower_Frame
 
 class Second(CTk):
@@ -11,9 +10,8 @@ class Second(CTk):
                                           corner_radius=59, border_color="#FFFFFF", border_width=1)
         scroll_frame.pack(padx=10, pady=10, fill="both", expand=True)
 
-        upper_frame = Upper_frame(scroll_frame)
+        upper_frame = Upper_frame(scroll_frame, n=2)
         upper_frame.pack(anchor='n', pady=(23, 0))
-        upper_frame.pack_propagate(False)
 
         middle_frame = Middle_frame(scroll_frame)
         middle_frame.pack(anchor='n', pady=(19, 0))
