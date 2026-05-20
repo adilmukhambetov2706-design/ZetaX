@@ -3,7 +3,7 @@ from PIL import Image
 from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
-from Weather_info import Mid_frame_info, Low_frame_info
+from Weather_info import Mid_frame_info, Low_frame_info, Historical_day_info
 
 mb = 'Montserrat SemiBold'
 m = 'Montserrat'
@@ -61,31 +61,36 @@ def get_saved_cities():
         return cursor.fetchall()
 
 class Upper_frame(CTkFrame):
-    def __init__(self, master):
-        super().__init__(master, width=1293, height=40, fg_color=tr)
+    def __init__(self, master, compact=False):
+        self.compact = compact
+        super().__init__(master, width=580 if compact else 1293, height=40, fg_color=tr)
         color = "#D9D9D9"
 
-        CTkLabel(self, text='Zeta-X', font=(mb, 32)).grid(column=0, row=0, padx=52)
+        CTkLabel(self, text='Zeta-X', font=(mb, 16 if compact else 32)).grid(column=0, row=0, padx=20 if compact else 52)
 
-        search_frame = CTkFrame(self, width=600, height=34, corner_radius=17, fg_color=color)
-        search_frame.grid(column=1, row=0, padx=(110, 0))
+        search_frame = CTkFrame(self, width=300 if compact else 600, height=18 if compact else 34,
+                                corner_radius=9 if compact else 17, fg_color=color)
+        search_frame.grid(column=1, row=0, padx=(70 if compact else 110, 0))
 
         CTkLabel(search_frame, image=CTkImage(Image.open("Icons/Search.png"),
-                                              size=(24, 24)), text="").grid(column=0, row=0, padx=(20, 0))
+                                              size=(10, 10) if compact else (24, 24)), text="").grid(column=0, row=0, padx=(8 if compact else 20, 0))
 
-        self.search_entry = CTkEntry(search_frame, placeholder_text="Search", corner_radius=17, border_color=color,
-                                fg_color=color, text_color="#000000", placeholder_text_color='#422BA0', width=671, height=34)
-        self.search_entry.grid(column=1, row=0, padx=(0, 100))
+        self.search_entry = CTkEntry(search_frame, placeholder_text="Search", corner_radius=9 if compact else 17, border_color=color,
+                                fg_color=color, text_color="#000000", placeholder_text_color='#422BA0',
+                                width=260 if compact else 671, height=18 if compact else 34,
+                                font=(m, 9 if compact else 16))
+        self.search_entry.grid(column=1, row=0, padx=(0, 12 if compact else 100))
 
         self.add_city_button = CTkButton(self, text="Add city", height=34, fg_color="#1B166D", corner_radius=17,
                                     border_color="white", border_width=1, width=60, font=(m, 16),
                                     command=self.add_city)
-        self.add_city_button.grid(column=2, row=0, padx=10)
+        if not compact:
+            self.add_city_button.grid(column=2, row=0, padx=10)
 
         burger_image = CTkImage(light_image=Image.open('Icons/menu.png'), size=(58, 42))
         self.burger_button = CTkButton(self, image=burger_image, height=42, width=58, fg_color=tr,
                                   text="", command=self.open_menu)
-        self.burger_button.grid(column=3, row=0, padx=60)
+        self.burger_button.grid(column=3 if not compact else 2, row=0, padx=60 if not compact else (98, 0))
 
 
     def add_city(self):
@@ -126,7 +131,7 @@ class Upper_frame(CTkFrame):
             "font": (mb, 24),
         }
 
-        CTkButton(menu_frame, text="Saved Cities", **button_style).pack(anchor="n", pady=32)
+        CTkButton(menu_frame, text="Saved Cities", command=lambda: self.open_saved_cities_page(overlay), **button_style).pack(anchor="n", pady=32)
         CTkButton(menu_frame, text="Notifications", **button_style).pack(anchor="n")
         CTkButton(menu_frame, text="Settings", command=lambda: self.open_settings_page(overlay), **button_style).pack(anchor="n", pady=32)
 
@@ -139,26 +144,35 @@ class Upper_frame(CTkFrame):
 
         root = self.winfo_toplevel()
         overlay.destroy()
+
+        settings_page = SettingsPage(root, getattr(root, "city", "Bishkek"))
+        settings_page.focus()
+
+    def open_saved_cities_page(self, overlay):
+        from Third_page import QuizApp
+
+        root = self.winfo_toplevel()
+        overlay.destroy()
         root.destroy()
 
-        settings_page = SettingsPage()
-        settings_page.mainloop()
+        saved_cities_page = QuizApp()
+        saved_cities_page.mainloop()
 
 
 class Middle_frame(CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, city="Bishkek"):
         super().__init__(master, width=1344, height=605, fg_color="#161358",
                          corner_radius=15, border_color="white", border_width=1)
-        mid_frame = Mid_frame_info()
+        mid_frame = Mid_frame_info(city)
 
-        CTkLabel(self, text='Bishkek: Detailed 14-Day & Hourly Forecast',
+        CTkLabel(self, text=f'{city}: Detailed 14-Day & Hourly Forecast',
                  font=(m, 48)).pack(anchor='n', pady=(33, 0))
 
         detailed_24h_frame = CTkFrame(self, fg_color=tr, width=1292, height=365, corner_radius=15)
         detailed_24h_frame.pack(anchor='n', pady=(42, 0), padx=(1, 1))
         detailed_24h_frame.pack_propagate(False)
 
-        CTkLabel(detailed_24h_frame, text='Bishkek: Detailed (24 Hours)',
+        CTkLabel(detailed_24h_frame, text=f'{city}: Detailed (24 Hours)',
                   font=(mb, 24)).pack(anchor='n', pady=(15, 0))
 
         hourly_time_frame = CTkScrollableFrame(detailed_24h_frame, width=1180, height=235,
@@ -177,28 +191,88 @@ class Middle_frame(CTkFrame):
             CTkLabel(hourly_time_frame, text=f"{int(city_temp)}°C", font=(m, 24)).grid(column=i, row=2, padx=(0, 84), pady=(12, 0))
 
 
+class Historical_day_frame(CTkFrame):
+    def __init__(self, master, city="Bishkek", selected_date=""):
+        super().__init__(master, width=1344, height=690, fg_color="#161358",
+                         corner_radius=15, border_color="white", border_width=1)
+        history = Historical_day_info(city, selected_date)
+        display_date = datetime.strptime(selected_date, "%Y-%m-%d").strftime("%b %d, %Y")
 
-class Additional_info_frame(CTkFrame):
-    def __init__(self, master):
-        super().__init__(master, width=1344, height=360, fg_color="#080451")
+        def format_number(value, suffix="", decimals=0):
+            if value is None:
+                return "N/A"
+            if decimals:
+                return f"{value:.{decimals}f}{suffix}"
+            return f"{int(value)}{suffix}"
+
+        CTkLabel(self, text=f"{city}: Historical Weather",
+                 font=(m, 48)).pack(anchor='n', pady=(33, 0))
+        CTkLabel(self, text=display_date, text_color="#B8B7CF",
+                 font=(mb, 24)).pack(anchor='n', pady=(8, 0))
+
+        summary_frame = CTkFrame(self, width=920, height=170, fg_color="#130F60",
+                                 border_width=1, border_color="white", corner_radius=15)
+        summary_frame.pack(anchor="n", pady=(32, 0))
+        summary_frame.pack_propagate(False)
+
+        weather = history.weather()
+        weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(88, 88))
+        CTkLabel(summary_frame, image=weather_image, text="").grid(column=0, row=0, rowspan=2, padx=(45, 35), pady=37)
+        CTkLabel(summary_frame, text=weather, font=(mb, 32)).grid(column=1, row=0, sticky="w", pady=(34, 0))
+        CTkLabel(summary_frame, text=f"{format_number(history.min_temp(), '°')} / {format_number(history.max_temp(), '°')}",
+                 font=(m, 30)).grid(column=1, row=1, sticky="w", pady=(0, 34))
+
+        info_items = [
+            ("Humidity", format_number(history.humidity(), "%")),
+            ("UV Index", format_number(history.uv(), decimals=1)),
+            ("Sunrise", history.sunrise_time()),
+            ("Sunset", history.sunset_time()),
+        ]
+
+        for index, (label, value) in enumerate(info_items):
+            item = CTkFrame(summary_frame, width=142, height=88, fg_color="#0D0C4C",
+                            border_width=1, border_color="white", corner_radius=8)
+            item.grid(column=index + 2, row=0, rowspan=2, padx=(20, 0), pady=40)
+            item.pack_propagate(False)
+            CTkLabel(item, text=label, text_color="#A262D7", font=(mb, 13)).pack(anchor="n", pady=(14, 4))
+            CTkLabel(item, text=value, font=(m, 22)).pack(anchor="n")
+
+        hourly_frame = CTkFrame(self, fg_color=tr, width=1292, height=300, corner_radius=15)
+        hourly_frame.pack(anchor='n', pady=(42, 0), padx=(1, 1))
+        hourly_frame.pack_propagate(False)
+
+        CTkLabel(hourly_frame, text='Historical Hourly Weather',
+                 font=(mb, 24)).pack(anchor='n', pady=(15, 0))
+
+        hourly_scroll = CTkScrollableFrame(hourly_frame, width=1180, height=185,
+                                           fg_color=tr, orientation="horizontal")
+        hourly_scroll.pack(anchor="n", pady=(20, 0), padx=(39, 0))
+
+        for i in range(24):
+            CTkLabel(hourly_scroll, text=history.hourly_time(i), font=(mb, 24)).grid(column=i, row=0, padx=(0, 65))
+            weather = history.hourly_weather(i)
+            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(56, 56))
+            CTkLabel(hourly_scroll, image=weather_image, text="").grid(column=i, row=1, padx=(0, 65), pady=(10, 0))
+            CTkLabel(hourly_scroll, text=format_number(history.hourly_temp(i), "°C"), font=(m, 20)).grid(column=i, row=2, padx=(0, 65), pady=(8, 0))
+            CTkLabel(hourly_scroll, text=format_number(history.hourly_wind(i), " km/h"), text_color="#B8B7CF",
+                     font=(m, 16)).grid(column=i, row=3, padx=(0, 65), pady=(4, 0))
+
+
+
+class WindSideCard(CTkFrame):
+    def __init__(self, master, mid_frame):
         color = "#0D0C4C"
-        mid_frame = Mid_frame_info()
+        super().__init__(master, width=231, height=196, fg_color=color,
+                         border_width=1, border_color="white", corner_radius=8)
+        self.pack_propagate(False)
 
-        main_frame = CTkFrame(self, width=925, height=354, fg_color="#130F60",
-                              border_width=1, border_color="white", corner_radius=15)
-        main_frame.grid(column=0, row=0)
-
-        wind_frame = CTkFrame(main_frame, width=231, height=196, fg_color=color,
-                              border_width=1, border_color="white", corner_radius=8)
-        wind_frame.grid(column=0, row=0, pady=(25, 0), padx=(26, 0))
-        wind_frame.pack_propagate(False)
-        mini_wind_frame = CTkFrame(wind_frame, fg_color=color)
+        mini_wind_frame = CTkFrame(self, fg_color=color)
         mini_wind_frame.pack(anchor="n", pady=(10, 0))
         wind_image = CTkImage(Image.open("Icons/Wind.png"), size=(17, 17))
         CTkLabel(mini_wind_frame, image=wind_image, text="").grid(column=0, row=0)
         CTkLabel(mini_wind_frame, text="WIND", text_color="#7E4FB2", font=(mb, 18)).grid(column=1, row=0, padx=(8, 0))
 
-        wind_side_frame = CTkFrame(wind_frame, width=153, height=151, fg_color=color)
+        wind_side_frame = CTkFrame(self, width=153, height=151, fg_color=color)
         wind_side_frame.pack(anchor="n", pady=(3, 0))
         wind_side_frame.pack_propagate(False)
 
@@ -216,47 +290,28 @@ class Additional_info_frame(CTkFrame):
         CTkLabel(wind_side_frame, text="KM/H", fg_color=color, font=(m, 15)).place(relx=0.5, rely=0.6, anchor="center")
 
 
-        sunrise_frame = CTkFrame(main_frame, width=231, height=196, fg_color=color,
-                              border_width=1, border_color="white", corner_radius=8)
-        sunrise_frame.grid(column=1, row=0, pady=(25, 16), padx=87)
-        mini_sunrise_frame = CTkFrame(sunrise_frame, fg_color=color)
+class SunriseCard(CTkFrame):
+    def __init__(self, master, mid_frame):
+        color = "#0D0C4C"
+        super().__init__(master, width=231, height=196, fg_color=color,
+                         border_width=1, border_color="white", corner_radius=8)
+
+        mini_sunrise_frame = CTkFrame(self, fg_color=color)
         mini_sunrise_frame.pack(anchor="n", pady=23)
         sunrise_image = CTkImage(Image.open("Icons/sun-rise.png"), size=(17, 17))
         CTkLabel(mini_sunrise_frame, image=sunrise_image, text="").grid(column=0, row=0)
         CTkLabel(mini_sunrise_frame, text="SUNRISE", text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
-        CTkLabel(sunrise_frame, text=mid_frame.sunrise_time(), font=(m, 24)).pack(anchor='n')
+        CTkLabel(self, text=mid_frame.sunrise_time(), font=(m, 24)).pack(anchor='n')
         sunrise_image = CTkImage(Image.open("Icons/sun-rise_time.png"), size=(228, 44))
-        CTkLabel(sunrise_frame, image=sunrise_image, text="").pack(anchor='n', pady=(13, 44))
-        
-
-        sunset_frame = CTkFrame(main_frame, width=231, height=196, fg_color=color,
-                              border_width=1, border_color="white", corner_radius=8)
-        sunset_frame.grid(column=2, row=0, pady=(25, 0), padx=(0, 26))
-        mini_sunset_frame = CTkFrame(sunset_frame, fg_color=color)
-        mini_sunset_frame.pack(anchor="n", pady=23)
-        sunset_image = CTkImage(Image.open("Icons/sun-set.png"), size=(17, 17))
-        CTkLabel(mini_sunset_frame, image=sunset_image, text="").grid(column=0, row=0)
-        CTkLabel(mini_sunset_frame, text="SUNSET", text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
-        CTkLabel(sunset_frame, text=mid_frame.sunset_time(), font=(m, 24)).pack(anchor='n')
-        sunset_image = CTkImage(Image.open("Icons/sun-set-time.png"), size=(228, 44))
-        CTkLabel(sunset_frame, image=sunset_image, text="").pack(anchor='n', pady=(13, 44))
+        CTkLabel(self, image=sunrise_image, text="").pack(anchor='n', pady=(13, 44))
 
 
-        informed_frame = CTkFrame(main_frame, width=231, height=32, fg_color="#35327E",
-                                  border_width=1, border_color="white", corner_radius=13)
-        informed_frame.grid(column=1, row=1)
-        alert_image = CTkImage(Image.open("Icons/alert.png"), size=(21, 21))
-        CTkLabel(informed_frame, image=alert_image, text="").grid(column=0, row=0, padx=(31, 2))
-        CTkLabel(informed_frame, text="Stay informed", font=(mb, 20)).grid(column=1, row=0, padx=(0, 31))
+class AirQualityCard(CTkFrame):
+    def __init__(self, master, mid_frame):
+        super().__init__(master, fg_color="#130F60", width=293, height=287,
+                         border_width=1, border_color="white", corner_radius=15)
 
-        CTkLabel(main_frame, text="Get complete weather information every day", font=(mb, 20)).grid(column=1, row=2, pady=23)
-
-
-        air_quality_frame = CTkFrame(self, fg_color="#130F60", width=293, height=287,
-                                     border_width=1, border_color="white", corner_radius=15)
-        air_quality_frame.grid(column=1, row=0, padx=25, pady=38)
-
-        mini_air_quality_frame = CTkFrame(air_quality_frame, fg_color="#1B1854", width=263,
+        mini_air_quality_frame = CTkFrame(self, fg_color="#1B1854", width=263,
                                           height=165, border_width=1, border_color="white", corner_radius=8)
         mini_air_quality_frame.pack(anchor="n", pady=(15, 18), padx=15)
         mini_air_quality_frame.pack_propagate(False)
@@ -288,16 +343,57 @@ class Additional_info_frame(CTkFrame):
         CTkLabel(see_more_frame, text=">", font=(m, 12), text_color="#B95FD6").grid(column=1, row=0, sticky="e")
         see_more_frame.grid_columnconfigure(1, weight=1)
 
-
-        care_frame = CTkFrame(air_quality_frame, fg_color="#35327E", width=161, height=26,
+        care_frame = CTkFrame(self, fg_color="#35327E", width=161, height=26,
                               border_width=1, border_color="white", corner_radius=13)
         care_frame.pack(anchor="n", padx=15)
         heart_image = CTkImage(Image.open("Icons/Heart.png"), size=(12, 12))
         CTkLabel(care_frame, image=heart_image, text="").grid(column=0, row=0, padx=8)
         CTkLabel(care_frame, text="Take care of your health", font=(mb, 10)).grid(column=1, row=0, padx=(0, 8))
 
-        CTkLabel(air_quality_frame, text="Get information on air", font=(mb, 20)).pack(anchor="n", pady=(15, 5), padx=15)
-        CTkLabel(air_quality_frame, text="quality", font=(mb, 20)).pack(anchor="n", pady=(0, 18), padx=15)
+        CTkLabel(self, text="Get information on air", font=(mb, 20)).pack(anchor="n", pady=(15, 5), padx=15)
+        CTkLabel(self, text="quality", font=(mb, 20)).pack(anchor="n", pady=(0, 18), padx=15)
+
+
+class Additional_info_frame(CTkFrame):
+    def __init__(self, master, city="Bishkek"):
+        super().__init__(master, width=1344, height=360, fg_color="#080451")
+        mid_frame = Mid_frame_info(city)
+
+        main_frame = CTkFrame(self, width=925, height=354, fg_color="#130F60",
+                              border_width=1, border_color="white", corner_radius=15)
+        main_frame.grid(column=0, row=0)
+
+        wind_frame = WindSideCard(main_frame, mid_frame)
+        wind_frame.grid(column=0, row=0, pady=(25, 0), padx=(26, 0))
+
+        sunrise_frame = SunriseCard(main_frame, mid_frame)
+        sunrise_frame.grid(column=1, row=0, pady=(25, 16), padx=87)
+
+        color = "#0D0C4C"
+        sunset_frame = CTkFrame(main_frame, width=231, height=196, fg_color=color,
+                              border_width=1, border_color="white", corner_radius=8)
+        sunset_frame.grid(column=2, row=0, pady=(25, 0), padx=(0, 26))
+        mini_sunset_frame = CTkFrame(sunset_frame, fg_color=color)
+        mini_sunset_frame.pack(anchor="n", pady=23)
+        sunset_image = CTkImage(Image.open("Icons/sun-set.png"), size=(17, 17))
+        CTkLabel(mini_sunset_frame, image=sunset_image, text="").grid(column=0, row=0)
+        CTkLabel(mini_sunset_frame, text="SUNSET", text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
+        CTkLabel(sunset_frame, text=mid_frame.sunset_time(), font=(m, 24)).pack(anchor='n')
+        sunset_image = CTkImage(Image.open("Icons/sun-set-time.png"), size=(228, 44))
+        CTkLabel(sunset_frame, image=sunset_image, text="").pack(anchor='n', pady=(13, 44))
+
+
+        informed_frame = CTkFrame(main_frame, width=231, height=32, fg_color="#35327E",
+                                  border_width=1, border_color="white", corner_radius=13)
+        informed_frame.grid(column=1, row=1)
+        alert_image = CTkImage(Image.open("Icons/alert.png"), size=(21, 21))
+        CTkLabel(informed_frame, image=alert_image, text="").grid(column=0, row=0, padx=(31, 2))
+        CTkLabel(informed_frame, text="Stay informed", font=(mb, 20)).grid(column=1, row=0, padx=(0, 31))
+
+        CTkLabel(main_frame, text="Get complete weather information every day", font=(mb, 20)).grid(column=1, row=2, pady=23)
+
+        air_quality_frame = AirQualityCard(self, mid_frame)
+        air_quality_frame.grid(column=1, row=0, padx=25, pady=38)
 
 
 
@@ -305,8 +401,8 @@ class Additional_info_frame(CTkFrame):
 
 
 class Lower_Frame(CTkFrame):
-    def __init__(self, master):
-        low_frame = Low_frame_info()
+    def __init__(self, master, city="Bishkek"):
+        low_frame = Low_frame_info(city)
         font = CTkFont(m, 24)
         font_semibold = CTkFont(mb, 28)
         pady=(30, 0)

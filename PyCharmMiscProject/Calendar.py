@@ -15,10 +15,11 @@ DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 
 
 class CalendarWidget(ctk.CTkFrame):
-    def __init__(self, master):
+    def __init__(self, master, on_date_selected=None):
         super().__init__(master, fg_color="#08112B")
 
         self.selected_date = None
+        self.on_date_selected = on_date_selected
 
         now = datetime.now()
 
@@ -89,7 +90,7 @@ class CalendarWidget(ctk.CTkFrame):
                 if day == 0:
                     continue
 
-                is_future = (
+                is_not_past = (
                     self.current_year > today.year
                     or (
                         self.current_year == today.year
@@ -98,11 +99,11 @@ class CalendarWidget(ctk.CTkFrame):
                     or (
                         self.current_year == today.year
                         and self.current_month == today.month
-                        and day > today.day
+                        and day >= today.day
                     )
                 )
 
-                state = "disabled" if is_future else "normal"
+                state = "disabled" if is_not_past else "normal"
 
                 btn = ctk.CTkButton(self.calendar_frame, text=str(day), width=42, height=42, corner_radius=21,
                                     fg_color="#2563EB", hover_color="#1D4ED8", state=state,
@@ -112,9 +113,9 @@ class CalendarWidget(ctk.CTkFrame):
     def select_date(self, day):
 
         self.selected_date = (
-            f"{day:02d}."
-            f"{self.current_month:02d}."
-            f"{self.current_year}"
+            f"{self.current_year}-"
+            f"{self.current_month:02d}-"
+            f"{day:02d}"
         )
 
         self.select_button.configure(
@@ -123,7 +124,13 @@ class CalendarWidget(ctk.CTkFrame):
 
     def print_date(self):
 
-        print(self.selected_date)
+        if not self.selected_date:
+            return
+
+        if self.on_date_selected:
+            self.on_date_selected(self.selected_date)
+        else:
+            print(self.selected_date)
 
     def prev_month(self):
 
@@ -182,11 +189,39 @@ class CalendarWidget(ctk.CTkFrame):
         self.draw_calendar()
 
 
-app = ctk.CTk()
-app.geometry("500x700")
-app.configure(fg_color="#08112B")
+class CalendarPage(ctk.CTkToplevel):
+    def __init__(self, master=None, city="Bishkek"):
+        super().__init__(master)
+        self.city = city
+        self.geometry("500x700")
+        self.title("Calendar")
+        self.configure(fg_color="#08112B")
 
-calendar_widget = CalendarWidget(app)
-calendar_widget.pack(fill="both", expand=True)
+        calendar_widget = CalendarWidget(self, self.open_second_page)
+        calendar_widget.pack(fill="both", expand=True)
 
-app.mainloop()
+    def open_second_page(self, selected_date):
+        from Second_page import Second, build_second_page
+
+        old_root = self.master
+        self.destroy()
+        if old_root:
+            for child in old_root.winfo_children():
+                child.destroy()
+            build_second_page(old_root, self.city, selected_date)
+            old_root.deiconify()
+            old_root.focus()
+        else:
+            second_page = Second(self.city, selected_date)
+            second_page.mainloop()
+
+
+if __name__ == "__main__":
+    app = ctk.CTk()
+    app.geometry("500x700")
+    app.configure(fg_color="#08112B")
+
+    calendar_widget = CalendarWidget(app)
+    calendar_widget.pack(fill="both", expand=True)
+
+    app.mainloop()

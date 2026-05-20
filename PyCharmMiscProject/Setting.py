@@ -1,19 +1,29 @@
+from datetime import datetime
+import os
+from tkinter import filedialog, messagebox
+from zipfile import ZIP_DEFLATED, ZipFile
+from xml.sax.saxutils import escape
+
 import customtkinter as ctk
+
+from Weather_info import Mid_frame_info
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
 
 
-class SettingsPage(ctk.CTk):
+class SettingsPage(ctk.CTkToplevel):
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, master=None, city="Bishkek"):
+        super().__init__(master)
+        self.city = city
 
         self.geometry("390x780")
         self.title("Settings")
         self.configure(fg_color="#050B45")
 
         self.selected_language = "Kyrgyz"
+        self.last_export_path = None
 
         self.build_ui()
 
@@ -42,7 +52,8 @@ class SettingsPage(ctk.CTk):
             corner_radius=17,
             fg_color="transparent",
             hover_color="#141D73",
-            font=("Arial", 22)
+            font=("Arial", 22),
+            command=self.destroy
         )
         back_btn.pack(anchor="w", padx=5)
 
@@ -122,7 +133,8 @@ class SettingsPage(ctk.CTk):
             corner_radius=16,
             fg_color="#7D5CFF",
             hover_color="#6947F5",
-            font=("Arial", 13, "bold")
+            font=("Arial", 13, "bold"),
+            command=self.export_excel
         )
         export_btn.pack(side="right")
 
@@ -152,7 +164,8 @@ class SettingsPage(ctk.CTk):
             hover_color="#1A247D",
             text_color="#8D6BFF",
             corner_radius=14,
-            font=("Arial", 13, "bold")
+            font=("Arial", 13, "bold"),
+            command=self.open_exported_excel
         )
         open_btn.pack(anchor="e", padx=16, pady=(0, 12))
 
@@ -190,9 +203,153 @@ class SettingsPage(ctk.CTk):
             hover_color="#1A247D",
             text_color="#8D6BFF",
             corner_radius=14,
-            font=("Arial", 13, "bold")
+            font=("Arial", 13, "bold"),
+            command=self.open_calendar
         )
         view_btn.pack(anchor="e", padx=16, pady=(5, 12))
+
+    def open_calendar(self):
+        from Calendar import CalendarPage
+
+        root = self.master
+        self.destroy()
+
+        calendar_page = CalendarPage(root, self.city)
+        calendar_page.focus()
+
+    def export_excel(self):
+        file_path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Export Excel",
+            defaultextension=".xlsx",
+            initialfile=f"zeta_x_{self.city}_{datetime.now():%Y%m%d}.xlsx",
+            filetypes=[("Excel workbook", "*.xlsx")]
+        )
+        if not file_path:
+            return
+
+        try:
+            rows = self.get_export_rows()
+            self.write_xlsx(file_path, rows)
+            self.last_export_path = file_path
+            messagebox.showinfo("Export Excel", "Excel file exported successfully.", parent=self)
+        except Exception as exc:
+            messagebox.showerror("Export Excel", f"Could not export Excel file:\n{exc}", parent=self)
+
+    def open_exported_excel(self):
+        file_path = self.last_export_path
+        if not file_path or not os.path.exists(file_path):
+            file_path = filedialog.askopenfilename(
+                parent=self,
+                title="Open Excel",
+                filetypes=[("Excel workbook", "*.xlsx")]
+            )
+        if not file_path:
+            return
+
+        try:
+            os.startfile(file_path)
+            self.last_export_path = file_path
+        except Exception as exc:
+            messagebox.showerror("Open Excel", f"Could not open Excel file:\n{exc}", parent=self)
+
+    def get_export_rows(self):
+        rows = [
+            ["Zeta-X Weather Export"],
+            ["City", self.city],
+            ["Generated", datetime.now().strftime("%Y-%m-%d %H:%M")],
+            [],
+            ["Metric", "Value"],
+        ]
+
+        try:
+            info = Mid_frame_info(self.city)
+            rows.extend([
+                ["Current temperature", f"{info.temp_today(0):.1f} C"],
+                ["Wind speed", f"{info.wind_speed():.1f} KM/H"],
+                ["Wind direction", f"{info.wind_direction_degrees()} degrees"],
+                ["Sunrise", info.sunrise_time()],
+                ["Sunset", info.sunset_time()],
+                ["Air quality", str(info.air_quality())],
+            ])
+        except Exception:
+            rows.extend([
+                ["Current temperature", "N/A"],
+                ["Wind speed", "N/A"],
+                ["Wind direction", "N/A"],
+                ["Sunrise", "N/A"],
+                ["Sunset", "N/A"],
+                ["Air quality", "N/A"],
+            ])
+
+        return rows
+
+    def write_xlsx(self, file_path, rows):
+        sheet_xml = self.build_sheet_xml(rows)
+        workbook_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+  <sheets>
+    <sheet name="Weather Export" sheetId="1" r:id="rId1"/>
+  </sheets>
+</workbook>"""
+        workbook_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+  <Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>
+</Relationships>"""
+        root_rels = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+</Relationships>"""
+        content_types = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+  <Default Extension="xml" ContentType="application/xml"/>
+  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+  <Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>
+</Types>"""
+        styles_xml = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="14"/><name val="Calibri"/></font></fonts>
+  <fills count="1"><fill><patternFill patternType="none"/></fill></fills>
+  <borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>
+  <cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>
+  <cellXfs count="2"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/><xf numFmtId="0" fontId="1" fillId="0" borderId="0" applyFont="1"/></cellXfs>
+</styleSheet>"""
+
+        with ZipFile(file_path, "w", ZIP_DEFLATED) as workbook:
+            workbook.writestr("[Content_Types].xml", content_types)
+            workbook.writestr("_rels/.rels", root_rels)
+            workbook.writestr("xl/workbook.xml", workbook_xml)
+            workbook.writestr("xl/_rels/workbook.xml.rels", workbook_rels)
+            workbook.writestr("xl/worksheets/sheet1.xml", sheet_xml)
+            workbook.writestr("xl/styles.xml", styles_xml)
+
+    def build_sheet_xml(self, rows):
+        body = []
+        for row_index, row in enumerate(rows, start=1):
+            cells = []
+            for col_index, value in enumerate(row, start=1):
+                ref = f"{self.excel_column(col_index)}{row_index}"
+                style = ' s="1"' if row_index in (1, 5) else ""
+                cells.append(
+                    f'<c r="{ref}" t="inlineStr"{style}><is><t>{escape(str(value))}</t></is></c>'
+                )
+            body.append(f'<row r="{row_index}">{"".join(cells)}</row>')
+
+        return f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+  <cols><col min="1" max="1" width="26" customWidth="1"/><col min="2" max="2" width="34" customWidth="1"/></cols>
+  <sheetData>{"".join(body)}</sheetData>
+</worksheet>"""
+
+    def excel_column(self, number):
+        result = ""
+        while number:
+            number, remainder = divmod(number - 1, 26)
+            result = chr(65 + remainder) + result
+        return result
 
     # =====================================
     # COMPONENTS
@@ -300,5 +457,8 @@ class SettingsPage(ctk.CTk):
 
 
 if __name__ == "__main__":
-    app = SettingsPage()
+    app = ctk.CTk()
+    app.withdraw()
+    settings_page = SettingsPage(app)
+    settings_page.protocol("WM_DELETE_WINDOW", app.destroy)
     app.mainloop()

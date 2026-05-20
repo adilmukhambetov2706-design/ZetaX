@@ -3,12 +3,28 @@ from datetime import datetime, timedelta
 from io import BytesIO
 
 API_KEY = "d57a3845315ffcc38df8af6af61ffb9c"
+REQUEST_TIMEOUT = 3
+
+
+def weather_name_from_code(code):
+    if code == 0:
+        return "Clear"
+    if code in (1, 2, 3, 45, 48):
+        return "Clouds"
+    if code in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
+        return "Rain"
+    if code in (71, 73, 75, 77, 85, 86):
+        return "Snow"
+    if code in (95, 96, 99):
+        return "Thunderstorm"
+    return "Clouds"
+
 
 class Mid_frame_info():
     def __init__(self, city="Bishkek"):
         self.city = city
         self.url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&units=metric&appid={API_KEY}"
-        self.weather_data = requests.get(self.url).json()
+        self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
 
     def time_right_now(self):
         timezone_offset = self.weather_data['city']['timezone']
@@ -70,7 +86,7 @@ class Mid_frame_info():
             "https://api.openweathermap.org/data/2.5/air_pollution"
             f"?lat={coord['lat']}&lon={coord['lon']}&appid={API_KEY}"
         )
-        data = requests.get(url).json()
+        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
         return data["list"][0]["main"]["aqi"]
 
 
@@ -85,11 +101,11 @@ class Low_frame_info():
             "relative_humidity_2m_mean,uv_index_max"
             "&forecast_days=14&timezone=auto"
         )
-        self.weather_data = requests.get(self.url).json()
+        self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
 
     def get_location(self, city):
         url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
-        data = requests.get(url).json()
+        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
         if "results" not in data or not data["results"]:
             raise ValueError(f"City not found: {city}")
         return data["results"][0]
@@ -126,29 +142,87 @@ class Low_frame_info():
         return self.day(i)["uv"]
 
     def weather_name(self, code):
-        if code == 0:
-            return "Clear"
-        if code in (1, 2, 3, 45, 48):
-            return "Clouds"
-        if code in (51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82):
-            return "Rain"
-        if code in (95, 96, 99):
-            return "Thunderstorm"
-        return "Clouds"
+        return weather_name_from_code(code)
+
+
+class Historical_day_info:
+    def __init__(self, city, selected_date):
+        self.city = city
+        self.selected_date = selected_date
+        location = self.get_location(city)
+        self.url = (
+            "https://archive-api.open-meteo.com/v1/archive"
+            f"?latitude={location['latitude']}&longitude={location['longitude']}"
+            f"&start_date={selected_date}&end_date={selected_date}"
+            "&daily=weather_code,temperature_2m_max,temperature_2m_min,"
+            "relative_humidity_2m_mean,uv_index_max,sunrise,sunset"
+            "&hourly=temperature_2m,relative_humidity_2m,wind_speed_10m,weather_code"
+            "&timezone=auto"
+        )
+        self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
+
+    def get_location(self, city):
+        url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
+        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
+        if "results" not in data or not data["results"]:
+            raise ValueError(f"City not found: {city}")
+        return data["results"][0]
+
+    def daily(self):
+        return self.weather_data["daily"]
+
+    def hourly(self):
+        return self.weather_data["hourly"]
+
+    def weather(self):
+        code = self.daily()["weather_code"][0]
+        return weather_name_from_code(code)
+
+    def max_temp(self):
+        return self.daily()["temperature_2m_max"][0]
+
+    def min_temp(self):
+        return self.daily()["temperature_2m_min"][0]
+
+    def humidity(self):
+        return self.daily()["relative_humidity_2m_mean"][0]
+
+    def uv(self):
+        return self.daily()["uv_index_max"][0]
+
+    def sunrise_time(self):
+        return datetime.fromisoformat(self.daily()["sunrise"][0]).strftime("%I:%M %p")
+
+    def sunset_time(self):
+        return datetime.fromisoformat(self.daily()["sunset"][0]).strftime("%I:%M %p")
+
+    def hourly_time(self, i):
+        return datetime.fromisoformat(self.hourly()["time"][i]).strftime("%H:%M")
+
+    def hourly_temp(self, i):
+        return self.hourly()["temperature_2m"][i]
+
+    def hourly_wind(self, i):
+        return self.hourly()["wind_speed_10m"][i]
+
+    def hourly_weather(self, i):
+        code = self.hourly()["weather_code"][i]
+        return weather_name_from_code(code)
 
 
 class Trd_page_info:
     def __init__(self, city):
         self.city = city
         self.url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&units=metric&appid={API_KEY}"
-        self.weather_data = requests.get(self.url).json()
+        self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
+        self.country_code = None
 
     def temp(self):
         return self.weather_data['list'][0]['main']['temp']
 
     def icon(self):
         icons =  self.weather_data['list'][0]['weather'][0]['icon']
-        response = requests.get(f"https://openweathermap.org/img/wn/{icons}@2x.png")
+        response = requests.get(f"https://openweathermap.org/img/wn/{icons}@2x.png", timeout=REQUEST_TIMEOUT)
         return BytesIO(response.content)
 
     def time(self):
@@ -157,13 +231,18 @@ class Trd_page_info:
         return utc_now + timedelta(seconds=timezone_offset)
 
     def country(self):
+        if self.country_code:
+            return self.country_code
+
         response = requests.get(
             f"https://nominatim.openstreetmap.org/search?city={self.city}&format=json&addressdetails=1",
-            headers={"User-Agent": "my-app"}).json()
-        return response[0]["address"]["country_code"]
+            headers={"User-Agent": "my-app"},
+            timeout=REQUEST_TIMEOUT).json()
+        self.country_code = response[0]["address"]["country_code"]
+        return self.country_code
 
     def flag(self):
         country_code = self.country()
-        response = requests.get(f"https://flagsapi.com/{country_code.upper()}/flat/64.png")
+        response = requests.get(f"https://flagsapi.com/{country_code.upper()}/flat/64.png", timeout=REQUEST_TIMEOUT)
         img_data = BytesIO(response.content)
         return img_data
