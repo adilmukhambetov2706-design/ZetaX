@@ -99,10 +99,16 @@ class QuizApp(CTk):
         build_second_page(self, city)
 
     def bind_city_card_click(self, widget, city):
+        if getattr(widget, "is_delete_button", False):
+            return
         widget.bind("<Button-1>", lambda event, selected_city=city: self.open_second_page(selected_city))
         widget.configure(cursor="hand2")
         for child in widget.winfo_children():
             self.bind_city_card_click(child, city)
+
+    def delete_city(self, city):
+        save_city_to_db(city, 2)
+        self.build_page()
 
     def show_city_card(self, city, use_fallback=False):
         city_key = city.lower()
@@ -126,6 +132,22 @@ class QuizApp(CTk):
             border_width=1,
         )
         widget_frame.grid(column=i % 4, row=i // 4, padx=(0, 36), pady=(0, 36))
+
+        delete_button = CTkButton(
+            widget_frame,
+            text="X",
+            width=30,
+            height=30,
+            corner_radius=15,
+            fg_color="#2A1B7A",
+            hover_color="#5C2FB8",
+            border_width=1,
+            border_color="#FFFFFF",
+            font=(m, 15, "bold"),
+            command=lambda selected_city=city: self.delete_city(selected_city),
+        )
+        delete_button.is_delete_button = True
+        delete_button.place(relx=1, x=-10, y=10, anchor="ne")
 
         if use_fallback:
             temp_text = "--°C"

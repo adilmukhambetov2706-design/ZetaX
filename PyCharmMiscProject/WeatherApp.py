@@ -19,7 +19,8 @@ class WeatherApp(ctk.CTk):
         ctk.set_appearance_mode("dark")
         self.title("Zeta-X Weather")
         self.geometry("1400x955")
-        self.resizable(False, False)
+        self.minsize(1000, 720)
+        self.resizable(True, True)
         self.configure(fg_color="#4A2BA0")
 
         self.city = "Bishkek"

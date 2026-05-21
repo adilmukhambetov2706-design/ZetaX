@@ -70,7 +70,7 @@ class Upper_frame(CTkFrame):
 
         search_frame = CTkFrame(self, width=300 if compact else 600, height=18 if compact else 34,
                                 corner_radius=9 if compact else 17, fg_color=color)
-        search_frame.grid(column=1, row=0, padx=(70 if compact else 110, 0))
+        search_frame.grid(column=1, row=0, padx=(70 if compact else 70, 0))
 
         CTkLabel(search_frame, image=CTkImage(Image.open("Icons/Search.png"),
                                               size=(10, 10) if compact else (24, 24)), text="").grid(column=0, row=0, padx=(8 if compact else 20, 0))
@@ -79,7 +79,7 @@ class Upper_frame(CTkFrame):
                                 fg_color=color, text_color="#000000", placeholder_text_color='#422BA0',
                                 width=260 if compact else 671, height=18 if compact else 34,
                                 font=(m, 9 if compact else 16))
-        self.search_entry.grid(column=1, row=0, padx=(0, 12 if compact else 100))
+        self.search_entry.grid(column=1, row=0, padx=(0, 12))
 
         self.add_city_button = CTkButton(self, text="Add city", height=34, fg_color="#1B166D", corner_radius=17,
                                     border_color="white", border_width=1, width=60, font=(m, 16),
@@ -90,7 +90,7 @@ class Upper_frame(CTkFrame):
         burger_image = CTkImage(light_image=Image.open('Icons/menu.png'), size=(58, 42))
         self.burger_button = CTkButton(self, image=burger_image, height=42, width=58, fg_color=tr,
                                   text="", command=self.open_menu)
-        self.burger_button.grid(column=3 if not compact else 2, row=0, padx=60 if not compact else (98, 0))
+        self.burger_button.grid(column=3 if not compact else 2, row=0, padx=(20, 20) if not compact else (98, 0))
 
 
     def add_city(self):
