@@ -4,16 +4,39 @@ from datetime import datetime, timedelta
 from pathlib import Path
 import sqlite3
 from Weather_info import Mid_frame_info, Low_frame_info, Historical_day_info
+from i18n import t
 
 mb = 'Montserrat SemiBold'
 m = 'Montserrat'
 tr = 'transparent'
 months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+AQI_LABELS = {1: "Good", 2: "Fair", 3: "Moderate", 4: "Poor", 5: "Very Poor"}
 
 DB_PATH = Path(__file__).with_name("cities.db")
 
+_icon_cache = {}
+_table_initialized = False
+
+
+def _get_weather_icon(weather, size):
+    key = (weather, size)
+    if key not in _icon_cache:
+        _icon_cache[key] = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=size)
+    return _icon_cache[key]
+
+
+def _get_rotated_wind_image(degrees):
+    key = ('wind_side', degrees)
+    if key not in _icon_cache:
+        pil = Image.open("Icons/Wind_side.png").rotate(-degrees, resample=Image.Resampling.BICUBIC)
+        _icon_cache[key] = CTkImage(pil, size=(153, 151))
+    return _icon_cache[key]
+
 
 def create_cities_table():
+    global _table_initialized
+    if _table_initialized:
+        return
     with sqlite3.connect(DB_PATH) as connection:
         cursor = connection.cursor()
         cursor.execute(
@@ -25,6 +48,7 @@ def create_cities_table():
             )
             """
         )
+    _table_initialized = True
 
 
 def save_city_to_db(city_name, saved_status=1):
@@ -97,8 +121,8 @@ class Upper_frame(CTkFrame):
         city = self.search_entry.get().strip()
         if not city:
             return
-        city_data = save_city_to_db(city, 1)
-        print(city_data)
+        save_city_to_db(city, 1)
+        self.search_entry.delete(0, "end")
 
     def open_menu(self):
         root = self.winfo_toplevel()
@@ -134,9 +158,10 @@ class Upper_frame(CTkFrame):
         CTkButton(menu_frame, text="Saved Cities", command=lambda: self.open_saved_cities_page(overlay), **button_style).pack(anchor="n", pady=32)
         CTkButton(menu_frame, text="Notifications", **button_style).pack(anchor="n")
         CTkButton(menu_frame, text="Settings", command=lambda: self.open_settings_page(overlay), **button_style).pack(anchor="n", pady=32)
+        CTkButton(menu_frame, text="Календарь", command=lambda: self.open_calendar_page(overlay), **button_style).pack(anchor="n")
 
-        overlay.bind("<Escape>", lambda event: overlay.destroy())
-        overlay.bind("<Button-1>", lambda event: overlay.destroy() if event.widget == overlay else None)
+        overlay.bind("<Escape>", lambda event: overlay.destroy() if overlay.winfo_exists() else None)
+        overlay.bind("<Button-1>", lambda event: overlay.destroy() if overlay.winfo_exists() and event.widget == overlay else None)
         overlay.focus_force()
 
     def open_settings_page(self, overlay):
@@ -147,6 +172,15 @@ class Upper_frame(CTkFrame):
 
         settings_page = SettingsPage(root, getattr(root, "city", "Bishkek"))
         settings_page.focus()
+
+    def open_calendar_page(self, overlay):
+        from Calendar import CalendarPage
+
+        root = self.winfo_toplevel()
+        overlay.destroy()
+
+        calendar_page = CalendarPage(root, getattr(root, "city", "Bishkek"))
+        calendar_page.focus()
 
     def open_saved_cities_page(self, overlay):
         from Third_page import QuizApp
@@ -184,7 +218,7 @@ class Middle_frame(CTkFrame):
             CTkLabel(hourly_time_frame, text=f"{hour_time.hour:02d}:00", font=(mb, 32)).grid(column=i, row=0, padx=(0, 84))
 
             weather = mid_frame.weather_today(i//3)
-            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(80, 80))
+            weather_image = _get_weather_icon(weather, (80, 80))
             CTkLabel(hourly_time_frame, image=weather_image, text="").grid(column=i, row=1, padx=(0, 84), pady=(12, 0))
 
             city_temp = mid_frame.temp_today(i//3)
@@ -216,7 +250,7 @@ class Historical_day_frame(CTkFrame):
         summary_frame.pack_propagate(False)
 
         weather = history.weather()
-        weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(88, 88))
+        weather_image = _get_weather_icon(weather, (88, 88))
         CTkLabel(summary_frame, image=weather_image, text="").grid(column=0, row=0, rowspan=2, padx=(45, 35), pady=37)
         CTkLabel(summary_frame, text=weather, font=(mb, 32)).grid(column=1, row=0, sticky="w", pady=(34, 0))
         CTkLabel(summary_frame, text=f"{format_number(history.min_temp(), '°')} / {format_number(history.max_temp(), '°')}",
@@ -251,7 +285,7 @@ class Historical_day_frame(CTkFrame):
         for i in range(24):
             CTkLabel(hourly_scroll, text=history.hourly_time(i), font=(mb, 24)).grid(column=i, row=0, padx=(0, 65))
             weather = history.hourly_weather(i)
-            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(56, 56))
+            weather_image = _get_weather_icon(weather, (56, 56))
             CTkLabel(hourly_scroll, image=weather_image, text="").grid(column=i, row=1, padx=(0, 65), pady=(10, 0))
             CTkLabel(hourly_scroll, text=format_number(history.hourly_temp(i), "°C"), font=(m, 20)).grid(column=i, row=2, padx=(0, 65), pady=(8, 0))
             CTkLabel(hourly_scroll, text=format_number(history.hourly_wind(i), " km/h"), text_color="#B8B7CF",
@@ -262,7 +296,7 @@ class Historical_day_frame(CTkFrame):
 class WindSideCard(CTkFrame):
     def __init__(self, master, mid_frame):
         color = "#0D0C4C"
-        super().__init__(master, width=231, height=196, fg_color=color,
+        super().__init__(master, width=200, height=196, fg_color=color,
                          border_width=1, border_color="white", corner_radius=8)
         self.pack_propagate(False)
 
@@ -270,15 +304,14 @@ class WindSideCard(CTkFrame):
         mini_wind_frame.pack(anchor="n", pady=(10, 0))
         wind_image = CTkImage(Image.open("Icons/Wind.png"), size=(17, 17))
         CTkLabel(mini_wind_frame, image=wind_image, text="").grid(column=0, row=0)
-        CTkLabel(mini_wind_frame, text="WIND", text_color="#7E4FB2", font=(mb, 18)).grid(column=1, row=0, padx=(8, 0))
+        CTkLabel(mini_wind_frame, text=t("wind"), text_color="#7E4FB2", font=(mb, 18)).grid(column=1, row=0, padx=(8, 0))
 
         wind_side_frame = CTkFrame(self, width=153, height=151, fg_color=color)
         wind_side_frame.pack(anchor="n", pady=(3, 0))
         wind_side_frame.pack_propagate(False)
 
         wind_direction = mid_frame.wind_direction_degrees()
-        wind_side_pil = Image.open("Icons/Wind_side.png").rotate(-wind_direction, resample=Image.Resampling.BICUBIC)
-        wind_side_image = CTkImage(wind_side_pil, size=(153, 151))
+        wind_side_image = _get_rotated_wind_image(wind_direction)
         CTkLabel(wind_side_frame, image=wind_side_image, text="").place(x=0, y=0)
 
         CTkLabel(wind_side_frame, text="N", fg_color=color, font=(mb, 14)).place(relx=0.5, y=31, anchor="center")
@@ -293,17 +326,33 @@ class WindSideCard(CTkFrame):
 class SunriseCard(CTkFrame):
     def __init__(self, master, mid_frame):
         color = "#0D0C4C"
-        super().__init__(master, width=231, height=196, fg_color=color,
+        super().__init__(master, width=200, height=196, fg_color=color,
                          border_width=1, border_color="white", corner_radius=8)
 
         mini_sunrise_frame = CTkFrame(self, fg_color=color)
         mini_sunrise_frame.pack(anchor="n", pady=23)
         sunrise_image = CTkImage(Image.open("Icons/sun-rise.png"), size=(17, 17))
         CTkLabel(mini_sunrise_frame, image=sunrise_image, text="").grid(column=0, row=0)
-        CTkLabel(mini_sunrise_frame, text="SUNRISE", text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
+        CTkLabel(mini_sunrise_frame, text=t("sunrise"), text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
         CTkLabel(self, text=mid_frame.sunrise_time(), font=(m, 24)).pack(anchor='n')
-        sunrise_image = CTkImage(Image.open("Icons/sun-rise_time.png"), size=(228, 44))
+        sunrise_image = CTkImage(Image.open("Icons/sun-rise_time.png"), size=(190, 44))
         CTkLabel(self, image=sunrise_image, text="").pack(anchor='n', pady=(13, 44))
+
+
+class SunsetCard(CTkFrame):
+    def __init__(self, master, mid_frame):
+        color = "#0D0C4C"
+        super().__init__(master, width=200, height=196, fg_color=color,
+                         border_width=1, border_color="white", corner_radius=8)
+
+        mini_sunset_frame = CTkFrame(self, fg_color=color)
+        mini_sunset_frame.pack(anchor="n", pady=23)
+        sunset_icon = CTkImage(Image.open("Icons/sun-set.png"), size=(17, 17))
+        CTkLabel(mini_sunset_frame, image=sunset_icon, text="").grid(column=0, row=0)
+        CTkLabel(mini_sunset_frame, text=t("sunset"), text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
+        CTkLabel(self, text=mid_frame.sunset_time(), font=(m, 24)).pack(anchor='n')
+        sunset_bar = CTkImage(Image.open("Icons/sun-set-time.png"), size=(190, 44))
+        CTkLabel(self, image=sunset_bar, text="").pack(anchor='n', pady=(13, 44))
 
 
 class AirQualityCard(CTkFrame):
@@ -320,9 +369,11 @@ class AirQualityCard(CTkFrame):
         air_header_frame.pack(anchor="w", padx=20, pady=(14, 10))
         air_image = CTkImage(Image.open("Icons/Air.png"), size=(18, 18))
         CTkLabel(air_header_frame, image=air_image, text="").grid(column=0, row=0)
-        CTkLabel(air_header_frame, text="AIR QUALITY", text_color="#A262D7", font=(mb, 10)).grid(column=1, row=0, padx=(8, 0))
+        CTkLabel(air_header_frame, text=t("airQuality"), text_color="#A262D7", font=(mb, 10)).grid(column=1, row=0, padx=(8, 0))
 
-        CTkLabel(mini_air_quality_frame, text="3-Low Health Risk", font=(mb, 16),
+        aqi = mid_frame.air_quality()
+        aqi_text = f"{aqi} – {AQI_LABELS.get(aqi, 'Unknown')}"
+        CTkLabel(mini_air_quality_frame, text=aqi_text, font=(mb, 16),
                  text_color="white").pack(anchor="w", padx=20)
 
         air_line_frame = CTkFrame(mini_air_quality_frame, width=228, height=38, fg_color="#1B1854")
@@ -334,8 +385,7 @@ class AirQualityCard(CTkFrame):
 
         chevron_pil = Image.open("Icons/chevron.png").rotate(90, expand=True)
         chevron_image = CTkImage(chevron_pil, size=(34, 24))
-        air_quality = mid_frame.air_quality()
-        CTkLabel(air_line_frame, image=chevron_image, text="", fg_color="#1B1854").pack(anchor="w", padx=(10+air_quality*36, 0), pady=(4, 0))
+        CTkLabel(air_line_frame, image=chevron_image, text="", fg_color="#1B1854").pack(anchor="w", padx=(10+aqi*36, 0), pady=(4, 0))
 
         see_more_frame = CTkFrame(mini_air_quality_frame, fg_color="#1B1854")
         see_more_frame.pack(anchor="w", fill="x", padx=20, pady=(2, 0))
@@ -369,18 +419,8 @@ class Additional_info_frame(CTkFrame):
         sunrise_frame = SunriseCard(main_frame, mid_frame)
         sunrise_frame.grid(column=1, row=0, pady=(25, 16), padx=87)
 
-        color = "#0D0C4C"
-        sunset_frame = CTkFrame(main_frame, width=231, height=196, fg_color=color,
-                              border_width=1, border_color="white", corner_radius=8)
+        sunset_frame = SunsetCard(main_frame, mid_frame)
         sunset_frame.grid(column=2, row=0, pady=(25, 0), padx=(0, 26))
-        mini_sunset_frame = CTkFrame(sunset_frame, fg_color=color)
-        mini_sunset_frame.pack(anchor="n", pady=23)
-        sunset_image = CTkImage(Image.open("Icons/sun-set.png"), size=(17, 17))
-        CTkLabel(mini_sunset_frame, image=sunset_image, text="").grid(column=0, row=0)
-        CTkLabel(mini_sunset_frame, text="SUNSET", text_color="#5F3D95", font=(mb, 14)).grid(column=1, row=0)
-        CTkLabel(sunset_frame, text=mid_frame.sunset_time(), font=(m, 24)).pack(anchor='n')
-        sunset_image = CTkImage(Image.open("Icons/sun-set-time.png"), size=(228, 44))
-        CTkLabel(sunset_frame, image=sunset_image, text="").pack(anchor='n', pady=(13, 44))
 
 
         informed_frame = CTkFrame(main_frame, width=231, height=32, fg_color="#35327E",
@@ -421,25 +461,26 @@ class Lower_Frame(CTkFrame):
         pady=(1, 0)
         color = "#FFFFFF"
 
+        today = datetime.now()
         for i in range(min(13, low_frame.days_count())):
-            today = datetime.now()
-            day = today + timedelta(days=i)
-            CTkLabel(self, text=day.strftime("%a"), text_color=color, font=font).grid(column=0, row=i+1, pady=pady)
+            day_data = low_frame.day(i)
+            current_day = today + timedelta(days=i)
+            CTkLabel(self, text=current_day.strftime("%a"), text_color=color, font=font).grid(column=0, row=i+1, pady=pady)
 
-            date = low_frame.date(i)
+            date = datetime.strptime(day_data["date"], "%Y-%m-%d")
             CTkLabel(self, text=f"{months[date.month-1]} {date.day}",
                      text_color=color, font=font).grid(column=1, row=i+1, pady=pady)
 
             weather_frame = CTkFrame(self, fg_color=tr)
             weather_frame.grid(column=2, row=i+1, pady=pady)
 
-            weather = low_frame.weather_today(i)
-            weather_image = CTkImage(Image.open(f"Second/Weathers/{weather}.png"), size=(56, 56))
+            weather = day_data["weather"]
+            weather_image = _get_weather_icon(weather, (56, 56))
             CTkLabel(weather_frame, image=weather_image, text="").grid(column=0, row=0)
             CTkLabel(weather_frame, text=weather, text_color=color, font=font).grid(column=1, row=0)
 
-            min_temp = int(low_frame.min_temp(i))
-            max_temp = int(low_frame.max_temp(i))
+            min_temp = int(day_data["min_temp"])
+            max_temp = int(day_data["max_temp"])
             if i == 0:
                 CTkLabel(self, text=f"{min_temp}°/{max_temp}°", text_color=color, font=font).grid(column=4, row=i+1, pady=pady)
             else:
@@ -449,8 +490,7 @@ class Lower_Frame(CTkFrame):
                 CTkLabel(min_max_frame, text="/", text_color=color, font=font).grid(column=1, row=0)
                 CTkLabel(min_max_frame, text=f"{max_temp}°", text_color="#FF5A5A", font=font).grid(column=2, row=0)
 
+            CTkLabel(self, text=f"{day_data['uv']:.1f}", text_color=color, font=font).grid(column=5, row=i+1, pady=pady)
 
-            CTkLabel(self, text=f"{low_frame.UV_day(i):.1f}", text_color=color, font=font).grid(column=5, row=i+1, pady=pady)
-
-            humidity = int(low_frame.humidity(i))
+            humidity = int(day_data["humidity"])
             CTkLabel(self, text=f"{humidity}%", text_color=color, font=font).grid(column=6, row=i+1, pady=pady)

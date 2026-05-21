@@ -1,4 +1,5 @@
 import os
+import threading
 
 import customtkinter as ctk
 import requests
@@ -7,9 +8,12 @@ from PIL import Image, ImageDraw, ImageFilter, ImageOps
 from NoInternetPage import NoInternetPage
 from Weather_info import Mid_frame_info
 from Frames import SunriseCard, AirQualityCard, WindSideCard, Upper_frame
+from i18n import t
 
 
 FONT = "Arial"
+
+
 
 
 class WeatherApp(ctk.CTk):
@@ -28,6 +32,10 @@ class WeatherApp(ctk.CTk):
         self.is_error_showing = False
         self.error_page = None
         self.monitor_after_id = None
+        self._resize_after_id = None
+        self._left_panel = None
+        self._bottom_panel = None
+        self._aq_card = None
 
         self.show_main_page()
         self.monitor_after_id = self.after(500, self.start_network_monitoring)
@@ -79,14 +87,14 @@ class WeatherApp(ctk.CTk):
 
         ctk.CTkLabel(
             top_panel,
-            text="Discover the weather in every city you go",
+            text=t("discoverWeather"),
             font=(FONT, 45, "bold"),
             text_color="white",
         ).place(relx=0.5, y=88, anchor="center")
 
-        self.weather_card(top_panel, 150, "#2d128d", "Clear", "16", "Yesterday", False)
-        self.weather_card(top_panel, 510, "#4a3299", "Clouds", "-3", "Bishkek, Kyrgyzstan", True)
-        self.weather_card(top_panel, 870, "#2d128d", "Clouds", "9", "Tomorrow", False)
+        self.weather_card(top_panel, 150, "#2d128d", "Clear", "16", t("yesterday"), False)
+        self.weather_card(top_panel, 510, "#4a3299", "Clouds", "-3", f"Bishkek, {t('kyrgyzstan')}", True)
+        self.weather_card(top_panel, 870, "#2d128d", "Clouds", "9", t("tomorrow"), False)
 
         self.create_bottom_panel(shell)
         self.bind_open_third_page(shell)
@@ -129,38 +137,52 @@ class WeatherApp(ctk.CTk):
             border_color="#FFFFFF",
         )
         bottom.place(x=25, y=580)
+        self._bottom_panel = bottom
 
-        try:
-            info = Mid_frame_info(self.city)
-        except Exception:
-            info = None
-
-        left = ctk.CTkFrame(bottom, width=520, height=285, fg_color="#130F60",
+        left = ctk.CTkFrame(bottom, width=455, height=285, fg_color="#130F60",
                             border_width=1, border_color="#FFFFFF", corner_radius=12)
         left.place(x=18, y=20)
+        self._left_panel = left
 
-        if info:
-            wind_frame = WindSideCard(left, info)
-            wind_frame.place(x=20, y=26)
+        self.mini_metric(left, 20, 26, t("wind"), "–")
+        self.mini_metric(left, 240, 26, t("sunrise"), "–")
 
-            sunrise_frame = SunriseCard(left, info)
-            sunrise_frame.place(x=270, y=26)
-        else:
-            self.mini_metric(left, 20, 26, "WIND", "9.7\nKM/H")
-            self.mini_metric(left, 270, 26, "SUNRISE", "6:05 AM")
-
-        ctk.CTkLabel(left, text="Stay informed", font=(FONT, 14), text_color="white",
+        ctk.CTkLabel(left, text=t("stayInformed"), font=(FONT, 14), text_color="white",
                      fg_color="#35327E", corner_radius=13, width=150, height=28).place(x=92, y=226)
-        ctk.CTkLabel(left, text="Get complete weather\ninformation every day",
+        ctk.CTkLabel(left, text=t("dailyWeatherInfo"),
                      font=(FONT, 17, "bold"), text_color="white", justify="left").place(x=20, y=242)
 
         self.create_photo_card(bottom)
-        if info:
-            air_quality_frame = AirQualityCard(bottom, info)
-            air_quality_frame.place(x=930, y=14)
-        else:
-            self.create_air_quality_card(bottom, 3)
+        self._aq_card = self.create_air_quality_card(bottom)
         self.image_card.bind("<Configure>", self.set_fitted_image)
+        self.after(200, self._apply_fitted_image)
+
+        threading.Thread(target=self._load_bottom_data, daemon=True).start()
+
+    def _load_bottom_data(self):
+        try:
+            info = Mid_frame_info(self.city)
+            self.after(0, lambda: self._update_bottom_data(info))
+        except Exception:
+            pass
+
+    def _update_bottom_data(self, info):
+        if not self.winfo_exists():
+            return
+        left = self._left_panel
+        if not left or not left.winfo_exists():
+            return
+        for child in list(left.winfo_children()):
+            if getattr(child, '_is_mini_metric', False):
+                child.destroy()
+        WindSideCard(left, info).place(x=20, y=26)
+        SunriseCard(left, info).place(x=240, y=26)
+
+        bottom = self._bottom_panel
+        if bottom and bottom.winfo_exists() and self._aq_card and self._aq_card.winfo_exists():
+            self._aq_card.destroy()
+            self._aq_card = None
+            AirQualityCard(bottom, info).place(x=930, y=14)
 
     def bind_open_third_page(self, widget):
         widget.bind("<Button-1>", self.open_third_page)
@@ -185,6 +207,7 @@ class WeatherApp(ctk.CTk):
     def mini_metric(self, parent, x, y, title, value):
         box = ctk.CTkFrame(parent, width=166, height=142, fg_color="#1B1854",
                            border_width=1, border_color="#FFFFFF", corner_radius=10)
+        box._is_mini_metric = True
         box.place(x=x, y=y)
         ctk.CTkLabel(box, text=title, font=(FONT, 14, "bold"), text_color="#765aa8").pack(pady=(16, 5))
         ctk.CTkLabel(box, text=value, font=(FONT, 24), text_color="white").pack()
@@ -192,27 +215,28 @@ class WeatherApp(ctk.CTk):
     def create_photo_card(self, parent):
         self.image_card = ctk.CTkFrame(
             parent,
-            width=340,
+            width=430,
             height=285,
-            fg_color="#050416",
+            fg_color="transparent",
             corner_radius=12,
-            border_width=1,
+            border_width=0,
             border_color="#FFFFFF",
         )
-        self.image_card.place(x=560, y=15)
+        self.image_card.place(x=487, y=15)
+        self.image_card.pack_propagate(False)
         self.image_label = ctk.CTkLabel(self.image_card, text="")
         self.image_label.pack(fill="both", expand=True)
 
-    def create_air_quality_card(self, parent, aqi):
+    def create_air_quality_card(self, parent):
         card = ctk.CTkFrame(parent, width=265, height=245, fg_color="#130F60",
                             border_width=1, border_color="#FFFFFF", corner_radius=12)
-        card.place(x=945, y=20)
+        card.place(x=905, y=14)
 
         meter = ctk.CTkFrame(card, width=225, height=112, fg_color="#1B1854",
                              border_width=1, border_color="#FFFFFF", corner_radius=9)
         meter.place(x=20, y=18)
         ctk.CTkLabel(meter, text="AIR QUALITY", font=(FONT, 12, "bold"), text_color="#765aa8").place(x=16, y=10)
-        ctk.CTkLabel(meter, text=f"{aqi}-Low Health Risk", font=(FONT, 16, "bold"), text_color="white").place(x=16, y=36)
+        ctk.CTkLabel(meter, text="Loading...", font=(FONT, 16, "bold"), text_color="white").place(x=16, y=36)
         ctk.CTkFrame(meter, width=180, height=4, fg_color="#e44ad9").place(x=16, y=70)
         ctk.CTkLabel(meter, text="See more >", font=(FONT, 12), text_color="white").place(x=16, y=82)
 
@@ -220,6 +244,7 @@ class WeatherApp(ctk.CTk):
                      fg_color="#35327E", corner_radius=13, width=180, height=28).place(x=20, y=150)
         ctk.CTkLabel(card, text="Get information on air\nquality",
                      font=(FONT, 20, "bold"), text_color="white", justify="left").place(x=20, y=190)
+        return card
 
     def open_selected_city(self):
         from Second_page import build_second_page
@@ -229,13 +254,21 @@ class WeatherApp(ctk.CTk):
             build_second_page(self, city)
 
     def start_network_monitoring(self):
-        if self.has_connection():
+        self.monitor_after_id = self.after(5000, self.start_network_monitoring)
+        threading.Thread(target=self._check_connection, daemon=True).start()
+
+    def _check_connection(self):
+        connected = self.has_connection()
+        self.after(0, lambda: self._on_connection_result(connected))
+
+    def _on_connection_result(self, connected):
+        if not self.winfo_exists():
+            return
+        if connected:
             if self.is_error_showing:
                 self.show_main_page()
         elif not self.is_error_showing:
             self.show_no_internet_page()
-
-        self.monitor_after_id = self.after(5000, self.start_network_monitoring)
 
     def close_app(self):
         if self.monitor_after_id:
@@ -244,10 +277,11 @@ class WeatherApp(ctk.CTk):
         self.destroy()
 
     def check_connection_again(self):
+        threading.Thread(target=self._check_retry, daemon=True).start()
+
+    def _check_retry(self):
         if self.has_connection():
-            self.show_main_page()
-        else:
-            print("Connection is still unavailable...")
+            self.after(0, self.show_main_page)
 
     def has_connection(self):
         try:
@@ -257,11 +291,11 @@ class WeatherApp(ctk.CTk):
             return False
 
     def load_photo(self):
-        for file_name in ("Second/download.png", "Second/download.jpg", "download.jpg", "download.png", "city.jpg", "city.png"):
+        for file_name in ("Second/Group 20.png", "Second/download.png", "Second/download.jpg", "download.jpg", "download.png", "city.jpg", "city.png"):
             if os.path.exists(file_name):
                 return Image.open(file_name).convert("RGBA")
 
-        width, height = 900, 360
+        width, height = 559, 287
         image = Image.new("RGBA", (width, height), "#050817")
         draw = ImageDraw.Draw(image)
         for y in range(height):
@@ -273,18 +307,23 @@ class WeatherApp(ctk.CTk):
         return image.filter(ImageFilter.GaussianBlur(0.2))
 
     def set_fitted_image(self, event=None):
-        width = event.width if event else self.image_card.winfo_width()
-        height = event.height if event else self.image_card.winfo_height()
+        if self._resize_after_id:
+            self.after_cancel(self._resize_after_id)
+        self._resize_after_id = self.after(50, self._apply_fitted_image)
+
+    def _apply_fitted_image(self):
+        self._resize_after_id = None
+        width = self.image_card.winfo_width()
+        height = self.image_card.winfo_height()
         if width < 10 or height < 10:
             return
 
-        fitted = ImageOps.fit(self.main_photo, (width, height), centering=(0.5, 0.5))
-        mask = Image.new("L", (width, height), 0)
-        ImageDraw.Draw(mask).rounded_rectangle((0, 0, width, height), radius=8, fill=255)
-        rounded = Image.new("RGBA", (width, height), (0, 0, 0, 0))
-        rounded.paste(fitted, (0, 0), mask=mask)
+        img = self.main_photo.copy()
+        scale = width / img.width
+        new_h = int(img.height * scale)
+        img = img.resize((width, new_h), Image.LANCZOS)
 
-        ctk_image = ctk.CTkImage(light_image=rounded, dark_image=rounded, size=(width, height))
+        ctk_image = ctk.CTkImage(light_image=img, dark_image=img, size=(width, new_h))
         self.image_label.configure(image=ctk_image, text="")
         self.image_label.image = ctk_image
 

@@ -7,6 +7,7 @@ from xml.sax.saxutils import escape
 import customtkinter as ctk
 
 from Weather_info import Mid_frame_info
+from i18n import t, set_language, get_language_name
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("dark-blue")
@@ -22,7 +23,7 @@ class SettingsPage(ctk.CTkToplevel):
         self.title("Settings")
         self.configure(fg_color="#050B45")
 
-        self.selected_language = "Kyrgyz"
+        self.selected_language = get_language_name()
         self.last_export_path = None
 
         self.build_ui()
@@ -59,7 +60,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         title = ctk.CTkLabel(
             scroll,
-            text="Settings",
+            text=t("setting"),
             font=("Arial", 38, "bold"),
             text_color="white"
         )
@@ -67,7 +68,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         subtitle = ctk.CTkLabel(
             scroll,
-            text="Customize your weather experience",
+            text=t("customizeWeather"),
             font=("Arial", 15),
             text_color="#8E95D9"
         )
@@ -77,40 +78,26 @@ class SettingsPage(ctk.CTkToplevel):
         # LANGUAGE
         # =========================
 
-        self.section_title(scroll, "LANGUAGE")
+        self.section_title(scroll, t("language"))
 
         lang_card = self.card(scroll, 165)
 
         self.language_buttons = {}
 
-        self.language_option(lang_card, "Kyrgyz")
+        self.language_option(lang_card, "Kyrgyz", t("kyrgyz"))
         self.separator(lang_card)
 
-        self.language_option(lang_card, "Russian")
+        self.language_option(lang_card, "Russian", t("russian"))
         self.separator(lang_card)
 
-        self.language_option(lang_card, "English")
-        self.selected_language = "English"
+        self.language_option(lang_card, "English", t("english"))
         self.update_language_buttons()
-
-        # =========================
-        # THEME
-        # =========================
-
-        self.section_title(scroll, "THEME")
-
-        theme_card = self.card(scroll, 110)
-
-        self.option(theme_card, "Dark Theme", switch=True)
-        self.separator(theme_card)
-
-        self.option(theme_card, "Light Theme")
 
         # =========================
         # EXPORT DATA
         # =========================
 
-        self.section_title(scroll, "EXPORT DATA")
+        self.section_title(scroll, t("exportData"))
 
         export_card = self.card(scroll, 190)
 
@@ -119,7 +106,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         export_label = ctk.CTkLabel(
             top_row,
-            text="Export Excel",
+            text=t("exportExcel"),
             font=("Arial", 16),
             text_color="white"
         )
@@ -140,7 +127,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         export_weather = ctk.CTkLabel(
             export_card,
-            text="Export Weather Data 📄",
+            text=t("exportWeatherData") + " 📄",
             font=("Arial", 16),
             text_color="white"
         )
@@ -148,7 +135,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         desc = ctk.CTkLabel(
             export_card,
-            text="Export weekly forecast\nExport air quality\nExport history",
+            text=f"{t('exportWeeklyForecast')}\n{t('exportAirQuality')}\n{t('exportHistory')}",
             justify="left",
             font=("Arial", 12),
             text_color="#8E95D9"
@@ -157,7 +144,7 @@ class SettingsPage(ctk.CTkToplevel):
 
         open_btn = ctk.CTkButton(
             export_card,
-            text="Open >",
+            text=t("open") + " >",
             width=70,
             height=28,
             fg_color="transparent",
@@ -168,45 +155,6 @@ class SettingsPage(ctk.CTkToplevel):
             command=self.open_exported_excel
         )
         open_btn.pack(anchor="e", padx=16, pady=(0, 12))
-
-        # =========================
-        # WEATHER HISTORY
-        # =========================
-
-        self.section_title(scroll, "WEATHER HISTORY")
-
-        history_card = self.card(scroll, 145)
-
-        hist_title = ctk.CTkLabel(
-            history_card,
-            text="Historical Archive",
-            font=("Arial", 16),
-            text_color="white"
-        )
-        hist_title.pack(anchor="w", padx=16, pady=(16, 0))
-
-        hist_desc = ctk.CTkLabel(
-            history_card,
-            text="Access weather data from past years\nIncluding day and hourly records",
-            justify="left",
-            font=("Arial", 12),
-            text_color="#8E95D9"
-        )
-        hist_desc.pack(anchor="w", padx=16, pady=(5, 0))
-
-        view_btn = ctk.CTkButton(
-            history_card,
-            text="View >",
-            width=70,
-            height=28,
-            fg_color="transparent",
-            hover_color="#1A247D",
-            text_color="#8D6BFF",
-            corner_radius=14,
-            font=("Arial", 13, "bold"),
-            command=self.open_calendar
-        )
-        view_btn.pack(anchor="e", padx=16, pady=(5, 12))
 
     def open_calendar(self):
         from Calendar import CalendarPage
@@ -416,18 +364,11 @@ class SettingsPage(ctk.CTkToplevel):
     # LANGUAGE SWITCHING
     # =====================================
 
-    def language_option(self, parent, text):
-
+    def language_option(self, parent, name, display_text):
         row = ctk.CTkFrame(parent, fg_color="transparent")
         row.pack(fill="x", padx=16, pady=14)
 
-        label = ctk.CTkLabel(
-            row,
-            text=text,
-            font=("Arial", 16),
-            text_color="white"
-        )
-        label.pack(side="left")
+        ctk.CTkLabel(row, text=display_text, font=("Arial", 16), text_color="white").pack(side="left")
 
         switch = ctk.CTkSwitch(
             row,
@@ -435,16 +376,22 @@ class SettingsPage(ctk.CTkToplevel):
             progress_color="#7D5CFF",
             button_color="white",
             button_hover_color="#F2F2F2",
-            command=lambda t=text: self.select_language(t)
+            command=lambda n=name: self.select_language(n)
         )
         switch.pack(side="right")
 
-        self.language_buttons[text] = switch
+        self.language_buttons[name] = switch
 
     def select_language(self, language):
-
         self.selected_language = language
         self.update_language_buttons()
+        set_language(language)
+        root = self.master
+        self.destroy()
+        if hasattr(root, "show_main_page"):
+            root.show_main_page()
+        elif hasattr(root, "build_page"):
+            root.build_page()
 
     def update_language_buttons(self):
 

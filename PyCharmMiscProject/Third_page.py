@@ -1,19 +1,32 @@
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from customtkinter import *
 from PIL import Image
 
 from Frames import Upper_frame, get_saved_cities, save_city_to_db
 from NoInternetPage import NoInternetPage
 from Weather_info import Trd_page_info
+from i18n import t
 
 
 m = "Montserrat"
 tr = "transparent"
 
+_city_loader = ThreadPoolExecutor(max_workers=16)
+
+
+def _city_name(city: str) -> str:
+    key = city.lower().strip()
+    translated = t(key)
+    if translated != key:
+        return translated.title()
+    return city.strip().title()
+
 
 class Lower_frame(CTkFrame):
     def __init__(self, master):
         super().__init__(master, width=1344, height=720, fg_color="#1B166D", corner_radius=15)
-        CTkLabel(self, text="My Saved Cities", font=(m, 48)).pack(anchor="n", pady=(20, 0))
+        CTkLabel(self, text=t("savedCities"), font=(m, 48)).pack(anchor="n", pady=(20, 0))
 
         self.widgets_frames = CTkFrame(self, width=1242, height=610, fg_color=tr)
         self.widgets_frames.pack(anchor="n", pady=(30, 0))
@@ -79,7 +92,6 @@ class QuizApp(CTk):
         city = self.upper_frame.search_entry.get().strip()
         if not city:
             return
-
         save_city_to_db(city, 1)
         self.show_city_card_safe(city)
 
@@ -149,28 +161,77 @@ class QuizApp(CTk):
         delete_button.is_delete_button = True
         delete_button.place(relx=1, x=-10, y=10, anchor="ne")
 
-        if use_fallback:
-            temp_text = "--°C"
-            local_time_text = "--:--"
-            country_text = "--"
-            flag_image = CTkImage(Image.open("Second/Weathers/Clouds.png"), size=(60, 60))
-            weather_image = CTkImage(Image.open("Second/Weathers/Clouds.png"), size=(48, 48))
-        else:
-            third_page = Trd_page_info(city)
-            temp_text = f"{int(third_page.temp())}°C"
-            local_time_text = third_page.time().strftime("%H:%M")
-            country_text = third_page.country().upper()
-            flag_image = CTkImage(Image.open(third_page.flag()), size=(60, 60))
-            weather_image = CTkImage(Image.open(third_page.icon()).resize((48, 48)), size=(48, 48))
+        placeholder = CTkImage(Image.open("Second/Weathers/Clouds.png"), size=(60, 60))
 
-        CTkLabel(widget_frame, text=city, font=font).grid(column=0, row=0, padx=padx, pady=pady)
-        CTkLabel(widget_frame, image=flag_image, text="").grid(column=1, row=0, padx=(35, 37), pady=pady)
-        CTkLabel(widget_frame, text=temp_text, font=font).grid(column=0, row=1, padx=padx, pady=pady)
-        CTkLabel(widget_frame, image=weather_image, text="").grid(column=1, row=1, padx=(35, 37), pady=pady)
-        CTkLabel(widget_frame, text=local_time_text, font=font).grid(column=0, row=2, padx=padx, pady=38)
-        CTkLabel(widget_frame, text=country_text, font=font).grid(column=1, row=2, padx=(35, 37), pady=38)
+        city_label = CTkLabel(widget_frame, text=_city_name(city), font=font)
+        city_label.grid(column=0, row=0, padx=padx, pady=pady)
+
+        flag_label = CTkLabel(widget_frame, image=placeholder, text="")
+        flag_label.grid(column=1, row=0, padx=(35, 37), pady=pady)
+
+        temp_label = CTkLabel(widget_frame, text="--°C", font=font)
+        temp_label.grid(column=0, row=1, padx=padx, pady=pady)
+
+        weather_label = CTkLabel(widget_frame, image=placeholder, text="")
+        weather_label.grid(column=1, row=1, padx=(35, 37), pady=pady)
+
+        time_label = CTkLabel(widget_frame, text="--:--", font=font)
+        time_label.grid(column=0, row=2, padx=padx, pady=38)
+
+        country_label = CTkLabel(widget_frame, text="--", font=font)
+        country_label.grid(column=1, row=2, padx=(35, 37), pady=38)
 
         self.bind_city_card_click(widget_frame, city)
+
+        if not use_fallback:
+            _city_loader.submit(
+                self._load_city_data,
+                city, widget_frame, temp_label, flag_label, weather_label, time_label, country_label,
+            )
+
+    def _load_city_data(self, city, widget_frame, temp_label, flag_label, weather_label, time_label, country_label):
+        try:
+            info = Trd_page_info(city)
+
+            flag_bytes = [None]
+            icon_bytes = [None]
+
+            def fetch_flag():
+                flag_bytes[0] = info.flag()
+
+            def fetch_icon():
+                icon_bytes[0] = info.icon()
+
+            t_flag = threading.Thread(target=fetch_flag, daemon=True)
+            t_icon = threading.Thread(target=fetch_icon, daemon=True)
+            t_flag.start()
+            t_icon.start()
+            t_flag.join()
+            t_icon.join()
+
+            if flag_bytes[0] is None or icon_bytes[0] is None:
+                return
+
+            temp_text = f"{int(info.temp())}°C"
+            local_time_text = info.time().strftime("%H:%M")
+            country_text = info.country().upper()
+            flag_img = CTkImage(Image.open(flag_bytes[0]), size=(60, 60))
+            weather_img = CTkImage(Image.open(icon_bytes[0]).resize((48, 48)), size=(48, 48))
+
+            def update():
+                if not widget_frame.winfo_exists():
+                    return
+                temp_label.configure(text=temp_text)
+                flag_label.configure(image=flag_img)
+                flag_label.image = flag_img
+                weather_label.configure(image=weather_img)
+                weather_label.image = weather_img
+                time_label.configure(text=local_time_text)
+                country_label.configure(text=country_text)
+
+            self.after(0, update)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":

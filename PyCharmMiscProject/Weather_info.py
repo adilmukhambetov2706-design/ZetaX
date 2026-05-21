@@ -1,9 +1,16 @@
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from io import BytesIO
+import time
 
 API_KEY = "d57a3845315ffcc38df8af6af61ffb9c"
 REQUEST_TIMEOUT = 3
+CACHE_TTL = 60
+
+_location_cache = {}
+_mid_frame_cache = {}
+_low_frame_cache = {}
+_historical_cache = {}
 
 
 def weather_name_from_code(code):
@@ -20,17 +27,31 @@ def weather_name_from_code(code):
     return "Clouds"
 
 
+def _get_location(city):
+    if city in _location_cache:
+        return _location_cache[city]
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
+    data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
+    if "results" not in data or not data["results"]:
+        raise ValueError(f"City not found: {city}")
+    _location_cache[city] = data["results"][0]
+    return _location_cache[city]
+
+
 class Mid_frame_info():
     def __init__(self, city="Bishkek"):
         self.city = city
+        cached = _mid_frame_cache.get(city)
+        if cached and time.monotonic() - cached[1] < CACHE_TTL:
+            self.weather_data = cached[0]
+            return
         self.url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&units=metric&appid={API_KEY}"
         self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
+        _mid_frame_cache[city] = (self.weather_data, time.monotonic())
 
     def time_right_now(self):
         timezone_offset = self.weather_data['city']['timezone']
-        utc_now = datetime.utcnow()
-        local_time = utc_now + timedelta(seconds=timezone_offset)
-        return local_time
+        return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=timezone_offset)
 
     def weather_today(self, i):
         return self.weather_data['list'][i]['weather'][0]['main']
@@ -43,34 +64,11 @@ class Mid_frame_info():
         return speed_mps * 3.6
 
     def wind_direction_degrees(self):
-        if "current" in self.weather_data and "wind_dir" in self.weather_data["current"]:
-            return self.wind_dir_to_degrees(self.weather_data["current"]["wind_dir"])
         return self.weather_data["list"][0]["wind"]["deg"]
-
-    def wind_dir_to_degrees(self, wind_dir):
-        directions = {
-            "N": 0,
-            "NNE": 22.5,
-            "NE": 45,
-            "ENE": 67.5,
-            "E": 90,
-            "ESE": 112.5,
-            "SE": 135,
-            "SSE": 157.5,
-            "S": 180,
-            "SSW": 202.5,
-            "SW": 225,
-            "WSW": 247.5,
-            "W": 270,
-            "WNW": 292.5,
-            "NW": 315,
-            "NNW": 337.5,
-        }
-        return directions.get(wind_dir.upper(), 0)
 
     def city_time_from_timestamp(self, timestamp):
         timezone_offset = self.weather_data["city"]["timezone"]
-        return datetime.utcfromtimestamp(timestamp + timezone_offset)
+        return datetime.fromtimestamp(timestamp + timezone_offset, tz=timezone.utc).replace(tzinfo=None)
 
     def sunrise_time(self):
         sunrise = self.weather_data["city"]["sunrise"]
@@ -81,19 +79,26 @@ class Mid_frame_info():
         return self.city_time_from_timestamp(sunset).strftime("%I:%M %p")
 
     def air_quality(self):
+        if hasattr(self, '_aqi'):
+            return self._aqi
         coord = self.weather_data["city"]["coord"]
         url = (
             "https://api.openweathermap.org/data/2.5/air_pollution"
             f"?lat={coord['lat']}&lon={coord['lon']}&appid={API_KEY}"
         )
         data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
-        return data["list"][0]["main"]["aqi"]
+        self._aqi = data["list"][0]["main"]["aqi"]
+        return self._aqi
 
 
 class Low_frame_info():
     def __init__(self, city="Bishkek"):
         self.city = city
-        location = self.get_location(city)
+        cached = _low_frame_cache.get(city)
+        if cached and time.monotonic() - cached[1] < CACHE_TTL:
+            self.weather_data = cached[0]
+            return
+        location = _get_location(city)
         self.url = (
             "https://api.open-meteo.com/v1/forecast"
             f"?latitude={location['latitude']}&longitude={location['longitude']}"
@@ -102,13 +107,7 @@ class Low_frame_info():
             "&forecast_days=14&timezone=auto"
         )
         self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
-
-    def get_location(self, city):
-        url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
-        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
-        if "results" not in data or not data["results"]:
-            raise ValueError(f"City not found: {city}")
-        return data["results"][0]
+        _low_frame_cache[city] = (self.weather_data, time.monotonic())
 
     def day(self, i):
         return {
@@ -149,7 +148,11 @@ class Historical_day_info:
     def __init__(self, city, selected_date):
         self.city = city
         self.selected_date = selected_date
-        location = self.get_location(city)
+        cache_key = (city, selected_date)
+        if cache_key in _historical_cache:
+            self.weather_data = _historical_cache[cache_key]
+            return
+        location = _get_location(city)
         self.url = (
             "https://archive-api.open-meteo.com/v1/archive"
             f"?latitude={location['latitude']}&longitude={location['longitude']}"
@@ -160,13 +163,7 @@ class Historical_day_info:
             "&timezone=auto"
         )
         self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
-
-    def get_location(self, city):
-        url = f"https://geocoding-api.open-meteo.com/v1/search?name={city}&count=1&language=en&format=json"
-        data = requests.get(url, timeout=REQUEST_TIMEOUT).json()
-        if "results" not in data or not data["results"]:
-            raise ValueError(f"City not found: {city}")
-        return data["results"][0]
+        _historical_cache[cache_key] = self.weather_data
 
     def daily(self):
         return self.weather_data["daily"]
@@ -215,34 +212,23 @@ class Trd_page_info:
         self.city = city
         self.url = f"https://api.openweathermap.org/data/2.5/forecast?q={city}&units=metric&appid={API_KEY}"
         self.weather_data = requests.get(self.url, timeout=REQUEST_TIMEOUT).json()
-        self.country_code = None
 
     def temp(self):
         return self.weather_data['list'][0]['main']['temp']
 
     def icon(self):
-        icons =  self.weather_data['list'][0]['weather'][0]['icon']
+        icons = self.weather_data['list'][0]['weather'][0]['icon']
         response = requests.get(f"https://openweathermap.org/img/wn/{icons}@2x.png", timeout=REQUEST_TIMEOUT)
         return BytesIO(response.content)
 
     def time(self):
         timezone_offset = self.weather_data['city']['timezone']
-        utc_now = datetime.utcnow()
-        return utc_now + timedelta(seconds=timezone_offset)
+        return datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(seconds=timezone_offset)
 
     def country(self):
-        if self.country_code:
-            return self.country_code
-
-        response = requests.get(
-            f"https://nominatim.openstreetmap.org/search?city={self.city}&format=json&addressdetails=1",
-            headers={"User-Agent": "my-app"},
-            timeout=REQUEST_TIMEOUT).json()
-        self.country_code = response[0]["address"]["country_code"]
-        return self.country_code
+        return self.weather_data['city']['country']
 
     def flag(self):
         country_code = self.country()
         response = requests.get(f"https://flagsapi.com/{country_code.upper()}/flat/64.png", timeout=REQUEST_TIMEOUT)
-        img_data = BytesIO(response.content)
-        return img_data
+        return BytesIO(response.content)
